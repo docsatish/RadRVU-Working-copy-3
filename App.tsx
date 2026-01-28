@@ -57,13 +57,15 @@ const App: React.FC = () => {
   const [groupName, setGroupName] = useState(localStorage.getItem('rad_groupName') || '');
   const [hospitalName, setHospitalName] = useState(localStorage.getItem('rad_hospitalName') || '');
   
-  // Image Inspection State - Only in memory to avoid QuotaExceededError
+  // Image Inspection State
   const [lastImage, setLastImage] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [baseScale, setBaseScale] = useState(1);
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Persistence Effects
   useEffect(() => {
@@ -158,7 +160,6 @@ const App: React.FC = () => {
 
     let targetFile = file;
 
-    // Detect HEIC and convert to JPEG
     const isHeic = file.type === 'image/heic' || file.type === 'image/heif' || 
                    file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif');
 
@@ -167,7 +168,7 @@ const App: React.FC = () => {
         const convertedBlob = await heic2any({
           blob: file,
           toType: 'image/jpeg',
-          quality: 0.8
+          quality: 0.9 // Higher quality for OCR and viewing
         });
         const blob = Array.isArray(convertedBlob) ? convertedBlob[0] : convertedBlob;
         targetFile = new File([blob], file.name.replace(/\.[^/.]+$/, "") + ".jpg", { type: 'image/jpeg' });
@@ -247,7 +248,6 @@ const App: React.FC = () => {
       const doc = new jsPDF();
       const timestamp = new Date().toLocaleString();
 
-      // Header
       doc.setFontSize(22);
       doc.setTextColor(79, 70, 229);
       doc.text("RadRVU Professional Report", 14, 22);
@@ -256,7 +256,6 @@ const App: React.FC = () => {
       doc.setTextColor(100, 116, 139);
       doc.text(`Generated: ${timestamp}`, 14, 28);
 
-      // Metadata Box
       doc.setDrawColor(226, 232, 240);
       doc.setFillColor(248, 250, 252);
       doc.roundedRect(14, 35, 182, 35, 3, 3, 'FD');
@@ -271,7 +270,6 @@ const App: React.FC = () => {
       doc.text(`Radiology Group: ${groupName || 'Not Specified'}`, 18, 57);
       doc.text(`Hospital/Facility: ${hospitalName || 'Not Specified'}`, 18, 64);
 
-      // Summary Panel
       doc.setFont("helvetica", "bold");
       doc.text("PRODUCTIVITY SUMMARY", 14, 82);
       
@@ -294,7 +292,6 @@ const App: React.FC = () => {
         bodyStyles: { fontSize: 11, fontStyle: 'bold', halign: 'center', textColor: [30, 41, 59] }
       });
 
-      // Study Table (Consolidated or Individual based on UI)
       const tableData = displayStudies.map(s => [
         s.cpt,
         isGrouped ? s.name : (s.originalText || s.name),
@@ -317,7 +314,6 @@ const App: React.FC = () => {
         }
       });
 
-      // Image Page - Audit Evidence
       if (lastImage) {
         doc.addPage();
         doc.setFontSize(16);
@@ -351,8 +347,6 @@ const App: React.FC = () => {
           doc.addImage(lastImage, imgFormat, 14, 35, displayWidth, displayHeight, undefined, 'FAST');
         } catch (e) {
           console.error("PDF Image Inclusion Error:", e);
-          doc.setTextColor(239, 68, 68);
-          doc.text("Warning: Worklist image could not be embedded.", 14, 45);
         }
       }
 
@@ -374,7 +368,12 @@ const App: React.FC = () => {
     }
   };
 
-  const handleMouseDown = () => zoom > 1 && setIsPanning(true);
+  // Improved Zooming for Clarity
+  const handleMouseDown = (e: React.MouseEvent) => {
+    if (zoom > 1) {
+      setIsPanning(true);
+    }
+  };
   const handleMouseUp = () => setIsPanning(false);
   const handleMouseMove = (e: React.MouseEvent) => {
     if (isPanning) {
@@ -382,6 +381,29 @@ const App: React.FC = () => {
         x: prev.x + e.movementX,
         y: prev.y + e.movementY
       }));
+    }
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY * -0.0015;
+    const newZoom = Math.min(Math.max(1, zoom + delta), 8);
+    setZoom(newZoom);
+    if (newZoom === 1) setPosition({ x: 0, y: 0 });
+  };
+
+  const onImageLoad = () => {
+    if (imageRef.current && containerRef.current) {
+      const { naturalWidth, naturalHeight } = imageRef.current;
+      const { clientWidth, clientHeight } = containerRef.current;
+      
+      const widthScale = (clientWidth * 0.9) / naturalWidth;
+      const heightScale = (clientHeight * 0.8) / naturalHeight;
+      const scaleToFit = Math.min(widthScale, heightScale, 1);
+      
+      setBaseScale(scaleToFit);
+      setZoom(1);
+      setPosition({ x: 0, y: 0 });
     }
   };
 
@@ -487,6 +509,9 @@ const App: React.FC = () => {
                       onClick={() => setIsModalOpen(true)}
                     >
                       <img src={lastImage} alt="Worklist thumbnail" className="w-full h-full object-cover transition-transform group-hover:scale-105 duration-500" />
+                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100">
+                        <svg className="w-8 h-8 text-white drop-shadow-lg" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" /></svg>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -574,29 +599,69 @@ const App: React.FC = () => {
       </main>
 
       {isModalOpen && lastImage && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-black/90 backdrop-blur-md">
-          <div className="flex items-center justify-between p-4 bg-white/10 backdrop-blur-md border-b border-white/10">
-            <h3 className="text-white font-bold px-4">Image Inspector</h3>
-            <button onClick={() => setIsModalOpen(false)} className="p-2 text-white/70 hover:text-white transition-colors">
-                <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/95 backdrop-blur-xl animate-in fade-in duration-300">
+          <div className="flex items-center justify-between p-4 bg-slate-900/50 backdrop-blur-md border-b border-white/10">
+            <div className="flex items-center gap-6 px-4">
+              <h3 className="text-white font-bold text-sm uppercase tracking-widest">High-Res Inspector</h3>
+              <div className="flex items-center bg-white/10 rounded-xl p-1 gap-1">
+                <button onClick={() => setZoom(prev => Math.max(1, prev - 0.5))} className="p-2 text-white/70 hover:text-white transition-colors">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M20 12H4" /></svg>
+                </button>
+                <span className="px-3 text-xs font-black text-white/90 font-mono w-20 text-center">
+                  {Math.round(zoom * 100)}%
+                </span>
+                <button onClick={() => setZoom(prev => Math.min(8, prev + 0.5))} className="p-2 text-white/70 hover:text-white transition-colors">
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" /></svg>
+                </button>
+                <div className="w-px h-4 bg-white/10 mx-1"></div>
+                <button onClick={() => {setZoom(1); setPosition({x:0, y:0});}} className="px-3 py-1 text-[10px] font-black text-white/50 hover:text-white uppercase tracking-widest transition-colors">
+                  Reset
+                </button>
+              </div>
+            </div>
+            <button onClick={() => setIsModalOpen(false)} className="p-2 text-white/50 hover:text-white hover:bg-white/10 rounded-full transition-all mr-2">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
           </div>
           <div 
-            className="flex-1 overflow-hidden relative cursor-move flex items-center justify-center"
+            ref={containerRef}
+            className={`flex-1 overflow-hidden relative flex items-center justify-center ${zoom > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-zoom-in'}`}
             onMouseDown={handleMouseDown}
             onMouseUp={handleMouseUp}
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseUp}
+            onMouseLeave={handleMouseUp}
+            onWheel={handleWheel}
+            onClick={(e) => { if(zoom === 1) setZoom(2.5); }}
           >
             <div
-              className="transition-transform duration-75 ease-out"
+              className="transition-transform duration-75 ease-out will-change-transform"
               style={{
-                transform: `translate(${position.x}px, ${position.y}px) scale(${zoom})`,
+                transform: `translate(${position.x}px, ${position.y}px) scale(${baseScale * zoom}) translateZ(0)`,
                 transformOrigin: 'center center'
               }}
             >
-              <img ref={imageRef} src={lastImage} alt="Full Worklist" className="max-w-[90vw] max-h-[80vh] object-contain shadow-2xl pointer-events-none" />
+              <img 
+                ref={imageRef} 
+                src={lastImage} 
+                alt="Full Worklist" 
+                onLoad={onImageLoad}
+                style={{
+                  width: 'auto',
+                  height: 'auto',
+                  maxWidth: 'none',
+                  maxHeight: 'none',
+                  // Fixed: Changed 'high-quality' to 'auto' to fix TypeScript ImageRendering type error as it's not a standard member of the type.
+                  imageRendering: 'auto'
+                }}
+                className="shadow-2xl pointer-events-none select-none rounded-lg" 
+              />
             </div>
+            {zoom === 1 && (
+              <div className="absolute bottom-10 left-1/2 -translate-x-1/2 bg-black/60 text-white/80 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest backdrop-blur-md pointer-events-none">
+                Scroll to Zoom • Drag to Pan • Full Res Active
+              </div>
+            )}
           </div>
         </div>
       )}
