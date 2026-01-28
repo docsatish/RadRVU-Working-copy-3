@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { StudyDefinition } from "../types";
 
@@ -23,16 +22,16 @@ export const performOCRAndMatch = async (base64Image: string, currentDb: StudyDe
   try {
     const rawImageData = base64Image.includes(',') ? base64Image.split(',')[1] : base64Image;
 
-    // Use ai.models.generateContent to query GenAI with both the model name and prompt.
-    // Updated contents to a single object with parts as per current SDK guidelines.
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: {
-        parts: [
-          { inlineData: { mimeType: 'image/jpeg', data: rawImageData } },
-          { text: "Extract all radiology procedures individually. Do not combine them. Return as JSON." }
-        ]
-      },
+      contents: [
+        {
+          parts: [
+            { inlineData: { mimeType: 'image/jpeg', data: rawImageData } },
+            { text: "Extract all radiology procedures individually. Do not combine them. Return as JSON." }
+          ]
+        }
+      ],
       config: {
         systemInstruction,
         responseMimeType: "application/json",
@@ -58,7 +57,7 @@ export const performOCRAndMatch = async (base64Image: string, currentDb: StudyDe
       }
     });
 
-    // Directly access the .text property per SDK rules (it's a getter, not a method)
+    // Directly access the .text property per SDK rules
     const jsonStr = response.text || '{"studies": []}';
     const data = JSON.parse(jsonStr);
     
